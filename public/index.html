@@ -130,6 +130,15 @@
             transform: scale(1.05);
         }
 
+        .avatar-upload {
+            cursor: pointer;
+            position: relative;
+        }
+
+        .avatar-upload:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
         input {
             width: 100%;
             padding: 1rem;
@@ -682,7 +691,13 @@
                 <div class="avatar-option" data-avatar="🌟">🌟</div>
                 <div class="avatar-option" data-avatar="🔥">🔥</div>
                 <div class="avatar-option" data-avatar="💎">💎</div>
-                <div class="avatar-option" data-avatar="🚀">🚀</div>
+                <label class="avatar-option avatar-upload" for="avatarUpload">
+                    📷
+                    <input type="file" id="avatarUpload" accept="image/*" style="display: none;">
+                </label>
+            </div>
+            <div id="customAvatarPreview" style="display: none; text-align: center; margin-bottom: 1rem;">
+                <img id="customAvatarImg" style="width: 80px; height: 80px; border-radius: 12px; object-fit: cover; border: 2px solid var(--accent);">
             </div>
             
             <input type="text" id="nicknameInput" placeholder="Введіть ваш нік..." maxlength="20">
@@ -751,8 +766,36 @@
         };
         let privateChats = new Set();
         let typingTimeout = null;
+        let customAvatarData = null;
 
         const avatars = ['🎮', '🎨', '🎵', '🎬', '🌟', '🔥', '💎', '🚀'];
+
+        // Handle custom avatar upload
+        document.addEventListener('DOMContentLoaded', () => {
+            const avatarUpload = document.getElementById('avatarUpload');
+            if (avatarUpload) {
+                avatarUpload.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    if (file && file.type.startsWith('image/')) {
+                        const reader = new FileReader();
+                        reader.onload = function(event) {
+                            customAvatarData = event.target.result;
+                            
+                            // Show preview
+                            const preview = document.getElementById('customAvatarPreview');
+                            const img = document.getElementById('customAvatarImg');
+                            img.src = customAvatarData;
+                            preview.style.display = 'block';
+                            
+                            // Select custom avatar
+                            document.querySelectorAll('.avatar-option').forEach(o => o.classList.remove('selected'));
+                            document.querySelector('.avatar-upload').classList.add('selected');
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                });
+            }
+        });
 
         // Connect to WebSocket
         function connectWebSocket() {
@@ -832,7 +875,12 @@
                     
                     messages = data.messages;
                     
+                    // Load current media if available
                     if (data.currentMedia && data.currentMedia.url) {
+                        const urlInput = document.getElementById('urlInput');
+                        if (urlInput) {
+                            urlInput.value = data.currentMedia.url;
+                        }
                         loadMediaFromUrl(data.currentMedia.url);
                     }
                     
@@ -865,7 +913,14 @@
                     break;
 
                 case 'media-update':
-                    if (data.media.updatedBy !== currentUser.id) {
+                    // Update URL input field
+                    const urlInput = document.getElementById('urlInput');
+                    if (urlInput && data.media.url) {
+                        urlInput.value = data.media.url;
+                    }
+                    
+                    // Load media for everyone
+                    if (data.media.url) {
                         loadMediaFromUrl(data.media.url);
                     }
                     break;
@@ -894,12 +949,22 @@
                 return;
             }
             
-            const avatar = selectedAvatar ? selectedAvatar.dataset.avatar : avatars[Math.floor(Math.random() * avatars.length)];
+            let avatar, avatarType;
+            
+            // Check if custom avatar is selected
+            if (selectedAvatar && selectedAvatar.classList.contains('avatar-upload') && customAvatarData) {
+                avatar = customAvatarData;
+                avatarType = 'image';
+            } else {
+                avatar = selectedAvatar ? selectedAvatar.dataset.avatar : avatars[Math.floor(Math.random() * avatars.length)];
+                avatarType = 'emoji';
+            }
             
             currentUser = {
                 id: 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
                 nickname: nickname,
                 avatar: avatar,
+                avatarType: avatarType,
                 joinedAt: Date.now()
             };
             
@@ -934,8 +999,16 @@
             users.forEach((user, id) => {
                 const userItem = document.createElement('div');
                 userItem.className = 'user-item' + (id === currentUser.id ? ' current-user' : '');
+                
+                let avatarHtml;
+                if (user.avatarType === 'image') {
+                    avatarHtml = `<div class="user-avatar"><img src="${user.avatar}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 8px;"></div>`;
+                } else {
+                    avatarHtml = `<div class="user-avatar">${user.avatar}</div>`;
+                }
+                
                 userItem.innerHTML = `
-                    <div class="user-avatar">${user.avatar}</div>
+                    ${avatarHtml}
                     <div class="user-name">${user.nickname}${id === currentUser.id ? ' (ви)' : ''}</div>
                     <div class="user-status"></div>
                 `;
@@ -955,7 +1028,7 @@
             
             menu.innerHTML = `
                 <div class="user-menu-header">
-                    <div class="user-menu-avatar">${user.avatar}</div>
+                    <div class="user-menu-avatar">${user.avatarType === 'image' ? `<img src="${user.avatar}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 12px;">` : user.avatar}</div>
                     <div class="user-menu-info">
                         <h4>${user.nickname}</h4>
                         <p>Онлайн: ${timeOnline} хв</p>
@@ -965,7 +1038,10 @@
             `;
             
             const rect = event.currentTarget.getBoundingClientRect();
-            menu.style.left = (rect.right + 10) + 'px';
+            const menuWidth = 250; // приблизна ширина меню
+            
+            // Позиціонуємо меню ВЛІВО від користувача
+            menu.style.left = (rect.left - menuWidth - 10) + 'px';
             menu.style.top = rect.top + 'px';
             menu.classList.add('active');
             
@@ -1013,16 +1089,31 @@
             const tab = document.createElement('div');
             tab.className = 'chat-tab';
             tab.dataset.chat = chatId;
-            tab.innerHTML = `
-                ${label}
-                ${chatId !== 'general' ? '<span class="chat-tab-close" onclick="closeChat(\'' + chatId + '\', event)">✕</span>' : ''}
-            `;
             
+            if (chatId !== 'general') {
+                tab.innerHTML = `
+                    <span class="chat-tab-label">${label}</span>
+                    <span class="chat-tab-close" data-chat-id="${chatId}">✕</span>
+                `;
+            } else {
+                tab.innerHTML = label;
+            }
+            
+            // Add click handler for switching
             tab.addEventListener('click', (e) => {
                 if (!e.target.classList.contains('chat-tab-close')) {
                     switchToChat(chatId);
                 }
             });
+            
+            // Add click handler for close button
+            const closeBtn = tab.querySelector('.chat-tab-close');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    closeChat(chatId);
+                });
+            }
             
             tabs.appendChild(tab);
         }
@@ -1039,9 +1130,7 @@
         }
 
         // Close chat
-        function closeChat(chatId, event) {
-            event.stopPropagation();
-            
+        function closeChat(chatId) {
             const tab = document.querySelector(`[data-chat="${chatId}"]`);
             if (tab) {
                 tab.remove();
@@ -1081,8 +1170,15 @@
                 
                 const time = new Date(msg.timestamp).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
                 
+                let avatarHtml;
+                if (msg.avatarType === 'image') {
+                    avatarHtml = `<div class="message-avatar"><img src="${msg.avatar}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 8px;"></div>`;
+                } else {
+                    avatarHtml = `<div class="message-avatar">${msg.avatar}</div>`;
+                }
+                
                 message.innerHTML = `
-                    <div class="message-avatar">${msg.avatar}</div>
+                    ${avatarHtml}
                     <div class="message-content">
                         <div class="message-header">
                             <span class="message-author">${msg.author}</span>
@@ -1128,6 +1224,7 @@
                 type: 'user',
                 author: currentUser.nickname,
                 avatar: currentUser.avatar,
+                avatarType: currentUser.avatarType,
                 text: text,
                 timestamp: Date.now(),
                 isPrivate: activeChatTab !== 'general'
@@ -1239,19 +1336,25 @@
                 let videoId = '';
                 
                 if (url.includes('youtu.be/')) {
-                    videoId = url.split('youtu.be/')[1].split('?')[0];
+                    videoId = url.split('youtu.be/')[1].split('?')[0].split('&')[0];
                 } else if (url.includes('youtube.com')) {
-                    const urlParams = new URLSearchParams(new URL(url).search);
-                    videoId = urlParams.get('v');
+                    try {
+                        const urlObj = new URL(url);
+                        videoId = urlObj.searchParams.get('v');
+                    } catch (e) {
+                        // Fallback for malformed URLs
+                        const match = url.match(/[?&]v=([^&]+)/);
+                        if (match) videoId = match[1];
+                    }
                 }
                 
                 if (videoId) {
                     container.innerHTML = `
                         <iframe 
                             id="videoPlayer"
-                            src="https://www.youtube.com/embed/${videoId}?autoplay=0&enablejsapi=1" 
+                            src="https://www.youtube.com/embed/${videoId}?enablejsapi=1" 
                             frameborder="0" 
-                            allow="autoplay; encrypted-media" 
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
                             allowfullscreen>
                         </iframe>
                     `;
@@ -1259,7 +1362,7 @@
             } 
             // Check if image
             else if (url.match(/\.(jpeg|jpg|gif|png|webp)$/i) || url.includes('imgur') || url.includes('image')) {
-                container.innerHTML = `<img id="imagePlayer" src="${url}" alt="Shared Image">`;
+                container.innerHTML = `<img id="imagePlayer" src="${url}" alt="Shared Image" onerror="this.parentElement.innerHTML='<p class=\'placeholder\'>❌ Помилка завантаження зображення</p>'">`;
             }
             // Try as direct video
             else if (url.match(/\.(mp4|webm|ogg)$/i)) {
@@ -1268,6 +1371,8 @@
                         <source src="${url}">
                     </video>
                 `;
+            } else {
+                container.innerHTML = `<p class="placeholder">❌ Непідтримуваний формат медіа</p>`;
             }
         }
 
